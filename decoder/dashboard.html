@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>3Axis Detector Dashboard</title>
+  <style>
+    :root {
+      --panel: rgba(255, 250, 240, 0.9);
+      --panel-strong: #fffdf8;
+      --line: rgba(72, 54, 32, 0.12);
+      --text: #2f2418;
+      --muted: #6e614d;
+      --accent: #c05f2d;
+      --accent-2: #0f766e;
+      --accent-3: #355c7d;
+      --danger: #c2410c;
+      --success: #166534;
+      --shadow: 0 18px 40px rgba(77, 56, 22, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.9), transparent 38%),
+        linear-gradient(135deg, #efe7d4 0%, #f5f0e5 45%, #e7dbc6 100%);
+    }
+
+    .shell {
+      width: min(1280px, calc(100vw - 32px));
+      margin: 24px auto;
+      display: grid;
+      gap: 18px;
+    }
+
+    .hero,
+    .panel {
+      background: var(--panel);
+      border: 1px solid rgba(120, 90, 45, 0.12);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .hero {
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .title {
+      margin: 0;
+      font-size: clamp(28px, 5vw, 46px);
+      line-height: 1;
+      letter-spacing: 0.03em;
+    }
+
+    .subtitle {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .pill {
+      background: var(--panel-strong);
+      border-radius: 18px;
+      padding: 16px;
+      border: 1px solid var(--line);
+    }
+
+    .pill .label {
+      display: block;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .pill .value {
+      font-size: clamp(18px, 4vw, 26px);
+      font-weight: 700;
+    }
+
+    .panel { padding: 20px; }
+
+    .panel h2 {
+      margin: 0 0 6px;
+      font-size: 22px;
+    }
+
+    .panel .hint {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .button {
+      border: 1px solid rgba(72, 54, 32, 0.14);
+      background: #fffdf8;
+      color: var(--text);
+      border-radius: 999px;
+      padding: 10px 16px;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .button.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .button.stop {
+      background: #fff3ee;
+      color: var(--danger);
+      border-color: rgba(194, 65, 12, 0.16);
+    }
+
+    .button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .recording-chip {
+      padding: 9px 14px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.74);
+      border: 1px solid var(--line);
+      font-size: 14px;
+    }
+
+    .recording-chip.active {
+      background: rgba(22, 101, 52, 0.12);
+      color: var(--success);
+      border-color: rgba(22, 101, 52, 0.18);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.05fr 1fr;
+      gap: 18px;
+    }
+
+    .chart-wrap {
+      display: grid;
+      gap: 16px;
+    }
+
+    canvas {
+      width: 100%;
+      display: block;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid var(--line);
+    }
+
+    .pose-layout {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .pose-card {
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 14px;
+    }
+
+    .pose-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 12px;
+      align-items: center;
+    }
+
+    .pose-button {
+      border: 1px solid rgba(72, 54, 32, 0.14);
+      background: #fffdf8;
+      color: var(--text);
+      border-radius: 999px;
+      padding: 10px 14px;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .pose-button.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .stats {
+      display: grid;
+      gap: 10px;
+    }
+
+    .stat {
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(243, 239, 228, 0.9);
+      border: 1px solid var(--line);
+    }
+
+    .stat .name {
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .stat .num {
+      margin-top: 6px;
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 14px;
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .legend span::before {
+      content: "";
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      margin-right: 8px;
+      vertical-align: -1px;
+    }
+
+    .x::before { background: var(--accent); }
+    .y::before { background: var(--accent-2); }
+    .z::before { background: var(--accent-3); }
+
+    .status {
+      color: var(--danger);
+      font-weight: 600;
+      min-height: 1.4em;
+    }
+
+    @media (max-width: 980px) {
+      .hero,
+      .grid,
+      .pose-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .meta {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <h1 class="title">3Axis Detector Dashboard</h1>
+        <p class="subtitle">ライブ表示を見ながら、必要な区間だけ保存開始と保存終了で CSV に書き出せます。</p>
+      </div>
+      <div class="meta">
+        <div class="pill">
+          <span class="label">Device</span>
+          <span class="value" id="deviceName">waiting...</span>
+        </div>
+        <div class="pill">
+          <span class="label">Samples</span>
+          <span class="value" id="sampleCount">0</span>
+        </div>
+        <div class="pill">
+          <span class="label">Last Update</span>
+          <span class="value" id="lastUpdate">--:--:--</span>
+        </div>
+        <div class="pill">
+          <span class="label">RSSI</span>
+          <span class="value" id="rssiValue">-- dBm</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Recording</h2>
+      <p class="hint">保存開始を押すと受信中データの記録を開始し、保存終了を押すとその区間を CSV ダウンロードします。</p>
+      <div class="toolbar">
+        <button class="button primary" id="startRecordingButton">保存開始</button>
+        <button class="button stop" id="stopRecordingButton" disabled>保存終了</button>
+        <span class="recording-chip" id="recordingChip">未保存</span>
+        <span class="recording-chip" id="recordingCountChip">0 samples</span>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="panel">
+        <h2>Accel / Gyro Graph</h2>
+        <p class="hint">直近サンプルを 3 軸ごとの折れ線で表示します。加速度と角速度は別スケールです。</p>
+        <div class="chart-wrap">
+          <div>
+            <canvas id="accelChart" height="240"></canvas>
+            <div class="legend">
+              <span class="x">Accel X</span>
+              <span class="y">Accel Y</span>
+              <span class="z">Accel Z</span>
+            </div>
+          </div>
+          <div>
+            <canvas id="gyroChart" height="240"></canvas>
+            <div class="legend">
+              <span class="x">Gyro X</span>
+              <span class="y">Gyro Y</span>
+              <span class="z">Gyro Z</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>3D Pose View</h2>
+        <p class="hint">中央の本体を真上から見たイメージです。矢印がどちら側へ傾いているかを示します。</p>
+        <div class="pose-layout">
+          <div class="pose-card">
+            <div class="pose-toolbar">
+              <button class="pose-button" data-rotation="0">0°</button>
+              <button class="pose-button" data-rotation="90">90°</button>
+              <button class="pose-button" data-rotation="180">180°</button>
+              <button class="pose-button active" data-rotation="270">270°</button>
+              <span id="rotationLabel">表示回転: 270°</span>
+            </div>
+            <canvas id="poseCanvas" height="360"></canvas>
+          </div>
+          <div class="stats">
+            <div class="stat">
+              <div class="name">Roll</div>
+              <div class="num" id="rollValue">0.0 deg</div>
+            </div>
+            <div class="stat">
+              <div class="name">Pitch</div>
+              <div class="num" id="pitchValue">0.0 deg</div>
+            </div>
+            <div class="stat">
+              <div class="name">Tilt Strength</div>
+              <div class="num" id="tiltValue">0%</div>
+            </div>
+            <div class="stat">
+              <div class="name">Direction</div>
+              <div class="num" id="directionValue">CENTER</div>
+            </div>
+          </div>
+        </div>
+        <p class="hint status" id="statusText">データ待機中です。M5 から /api/imu に送信すると表示が更新されます。</p>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    const accelCanvas = document.getElementById("accelChart");
+    const gyroCanvas = document.getElementById("gyroChart");
+    const poseCanvas = document.getElementById("poseCanvas");
+    const rotationButtons = Array.from(document.querySelectorAll("[data-rotation]"));
+    const startRecordingButton = document.getElementById("startRecordingButton");
+    const stopRecordingButton = document.getElementById("stopRecordingButton");
+
+    const palette = {
+      x: "#c05f2d",
+      y: "#0f766e",
+      z: "#355c7d",
+      grid: "rgba(72, 54, 32, 0.12)",
+      text: "#2f2418",
+      muted: "#6e614d",
+      surface: "rgba(255,255,255,0.72)",
+      accent: "#c2410c"
+    };
+
+    let poseRotationDeg = 270;
+    let latestState = null;
+    let currentPose = null;
+    let targetPose = null;
+
+    function resizeCanvas(canvas) {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const width = Math.max(320, Math.round(rect.width));
+      const height = Math.max(220, Math.round(rect.height));
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return { ctx, width, height };
+    }
+
+    function rotateVector(vector, rotationDeg) {
+      const radians = rotationDeg * Math.PI / 180;
+      const cos = Math.cos(radians);
+      const sin = Math.sin(radians);
+      return {
+        x: vector.x * cos - vector.y * sin,
+        y: vector.x * sin + vector.y * cos
+      };
+    }
+
+    function makePose(source) {
+      if (!source) {
+        return {
+          roll_deg: 0,
+          pitch_deg: 0,
+          tilt_strength: 0,
+          top_view_vector: { x: 0, y: 0 }
+        };
+      }
+
+      return {
+        roll_deg: Number(source.roll_deg) || 0,
+        pitch_deg: Number(source.pitch_deg) || 0,
+        tilt_strength: Number(source.tilt_strength) || 0,
+        top_view_vector: {
+          x: Number(source.top_view_vector?.x) || 0,
+          y: Number(source.top_view_vector?.y) || 0
+        }
+      };
+    }
+
+    function lerp(a, b, t) {
+      return a + (b - a) * t;
+    }
+
+    function smoothPose(current, target, t) {
+      return {
+        roll_deg: lerp(current.roll_deg, target.roll_deg, t),
+        pitch_deg: lerp(current.pitch_deg, target.pitch_deg, t),
+        tilt_strength: lerp(current.tilt_strength, target.tilt_strength, t),
+        top_view_vector: {
+          x: lerp(current.top_view_vector.x, target.top_view_vector.x, t),
+          y: lerp(current.top_view_vector.y, target.top_view_vector.y, t)
+        }
+      };
+    }
+
+    function directionLabel(vector) {
+      const x = vector?.x || 0;
+      const y = vector?.y || 0;
+      const threshold = 0.18;
+      if (Math.abs(x) < threshold && Math.abs(y) < threshold) {
+        return "CENTER";
+      }
+
+      const horizontal = x > threshold ? "FRONT" : x < -threshold ? "BACK" : "";
+      const vertical = y > threshold ? "RIGHT" : y < -threshold ? "LEFT" : "";
+      return [horizontal, vertical].filter(Boolean).join(" / ");
+    }
+
+    function drawChart(canvas, history, keys, title, fixedRange = null) {
+      const { ctx, width, height } = resizeCanvas(canvas);
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = palette.surface;
+      ctx.fillRect(0, 0, width, height);
+
+      const margin = { top: 28, right: 18, bottom: 26, left: 44 };
+      const plotWidth = width - margin.left - margin.right;
+      const plotHeight = height - margin.top - margin.bottom;
+
+      ctx.strokeStyle = palette.grid;
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i += 1) {
+        const y = margin.top + (plotHeight / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(margin.left, y);
+        ctx.lineTo(width - margin.right, y);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = palette.text;
+      ctx.font = "600 14px 'Segoe UI', sans-serif";
+      ctx.fillText(title, margin.left, 18);
+
+      if (!history.length) {
+        ctx.fillStyle = palette.muted;
+        ctx.font = "14px 'Segoe UI', sans-serif";
+        ctx.fillText("No data", margin.left, margin.top + plotHeight / 2);
+        return;
+      }
+
+      const values = history.flatMap((point) => keys.map((key) => Number(point[key]) || 0));
+      let minValue = fixedRange ? fixedRange[0] : Math.min(...values);
+      let maxValue = fixedRange ? fixedRange[1] : Math.max(...values);
+
+      if (minValue === maxValue) {
+        maxValue += 1;
+        minValue -= 1;
+      }
+
+      const pad = (maxValue - minValue) * 0.12;
+      minValue -= pad;
+      maxValue += pad;
+
+      ctx.fillStyle = palette.muted;
+      ctx.font = "12px 'Segoe UI', sans-serif";
+      ctx.fillText(maxValue.toFixed(2), 8, margin.top + 4);
+      ctx.fillText(minValue.toFixed(2), 8, margin.top + plotHeight);
+
+      keys.forEach((key, index) => {
+        const color = [palette.x, palette.y, palette.z][index];
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        history.forEach((point, pointIndex) => {
+          const x = margin.left + (plotWidth * pointIndex) / Math.max(history.length - 1, 1);
+          const value = Number(point[key]) || 0;
+          const y = margin.top + plotHeight - ((value - minValue) / (maxValue - minValue)) * plotHeight;
+          if (pointIndex === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
+        });
+        ctx.stroke();
+      });
+    }
+
+    function roundRect(ctx, x, y, width, height, radius) {
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.arcTo(x + width, y, x + width, y + height, radius);
+      ctx.arcTo(x + width, y + height, x, y + height, radius);
+      ctx.arcTo(x, y + height, x, y, radius);
+      ctx.arcTo(x, y, x + width, y, radius);
+      ctx.closePath();
+    }
+
+    function rotatePoint(point, rotation) {
+      const sinX = Math.sin(rotation.x);
+      const cosX = Math.cos(rotation.x);
+      const sinY = Math.sin(rotation.y);
+      const cosY = Math.cos(rotation.y);
+      const sinZ = Math.sin(rotation.z);
+      const cosZ = Math.cos(rotation.z);
+
+      let x = point.x;
+      let y = point.y;
+      let z = point.z;
+
+      const yz = y * cosX - z * sinX;
+      const zz = y * sinX + z * cosX;
+      y = yz;
+      z = zz;
+
+      const xz = x * cosY + z * sinY;
+      const zz2 = -x * sinY + z * cosY;
+      x = xz;
+      z = zz2;
+
+      const xy = x * cosZ - y * sinZ;
+      const yy = x * sinZ + y * cosZ;
+      x = xy;
+      y = yy;
+
+      return { x, y, z };
+    }
+
+    function projectPoint(point, center, perspective) {
+      const depth = perspective / (perspective - point.z);
+      return {
+        x: center.x + point.x * depth,
+        y: center.y + point.y * depth,
+        depth
+      };
+    }
+
+    function drawFace(ctx, points, fill, stroke) {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i += 1) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+    }
+
+    function drawAxisLine(ctx, origin, endpoint, color, label) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(origin.x, origin.y);
+      ctx.lineTo(endpoint.x, endpoint.y);
+      ctx.stroke();
+
+      const angle = Math.atan2(endpoint.y - origin.y, endpoint.x - origin.x);
+      const head = 10;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(endpoint.x, endpoint.y);
+      ctx.lineTo(
+        endpoint.x - head * Math.cos(angle - Math.PI / 6),
+        endpoint.y - head * Math.sin(angle - Math.PI / 6)
+      );
+      ctx.lineTo(
+        endpoint.x - head * Math.cos(angle + Math.PI / 6),
+        endpoint.y - head * Math.sin(angle + Math.PI / 6)
+      );
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.font = "600 12px 'Segoe UI', sans-serif";
+      ctx.fillStyle = color;
+      ctx.textAlign = "center";
+      ctx.fillText(label, endpoint.x, endpoint.y - 10);
+    }
+
+    function drawPose(canvas, pose, rotationDeg) {
+      const { ctx, width, height } = resizeCanvas(canvas);
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = palette.surface;
+      ctx.fillRect(0, 0, width, height);
+
+      const cx = width / 2;
+      const cy = height / 2 - 18;
+      const bodyWidth = Math.min(width, height) * 0.34;
+      const bodyHeight = bodyWidth * 0.62;
+      const bodyDepth = bodyWidth * 0.24;
+      const sourceVector = pose?.top_view_vector || { x: 0, y: 0 };
+      const vector = rotateVector(sourceVector, rotationDeg);
+      const strength = Math.min(1, pose?.tilt_strength || 0);
+      const center = { x: cx, y: cy };
+      const perspective = 520;
+      const rotation = {
+        x: -(pose?.roll_deg || 0) * Math.PI / 180,
+        y: (pose?.pitch_deg || 0) * Math.PI / 180,
+        z: rotationDeg * Math.PI / 180
+      };
+
+      ctx.strokeStyle = "rgba(72, 54, 32, 0.08)";
+      ctx.lineWidth = 1;
+      for (let i = -2; i <= 2; i += 1) {
+        const y = cy + 118 + i * 22;
+        ctx.beginPath();
+        ctx.moveTo(cx - 170, y);
+        ctx.lineTo(cx + 170, y);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = "rgba(53, 92, 125, 0.1)";
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 116, bodyWidth * 0.88, bodyWidth * 0.26, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const vertices = [
+        { x: -bodyWidth / 2, y: -bodyHeight / 2, z: -bodyDepth / 2 },
+        { x:  bodyWidth / 2, y: -bodyHeight / 2, z: -bodyDepth / 2 },
+        { x:  bodyWidth / 2, y:  bodyHeight / 2, z: -bodyDepth / 2 },
+        { x: -bodyWidth / 2, y:  bodyHeight / 2, z: -bodyDepth / 2 },
+        { x: -bodyWidth / 2, y: -bodyHeight / 2, z:  bodyDepth / 2 },
+        { x:  bodyWidth / 2, y: -bodyHeight / 2, z:  bodyDepth / 2 },
+        { x:  bodyWidth / 2, y:  bodyHeight / 2, z:  bodyDepth / 2 },
+        { x: -bodyWidth / 2, y:  bodyHeight / 2, z:  bodyDepth / 2 }
+      ];
+
+      const projected = vertices.map((vertex) => {
+        const rotated = rotatePoint(vertex, rotation);
+        return {
+          ...projectPoint(rotated, center, perspective),
+          z: rotated.z
+        };
+      });
+
+      const axisOrigin3D = { x: 0, y: 0, z: 0 };
+      const axisLength = bodyWidth * 0.82;
+      const axisOrigin = projectPoint(rotatePoint(axisOrigin3D, rotation), center, perspective);
+      const axisX = projectPoint(rotatePoint({ x: axisLength, y: 0, z: 0 }, rotation), center, perspective);
+      const axisY = projectPoint(rotatePoint({ x: 0, y: axisLength, z: 0 }, rotation), center, perspective);
+      const axisZ = projectPoint(rotatePoint({ x: 0, y: 0, z: axisLength }, rotation), center, perspective);
+
+      const faces = [
+        { indices: [0, 1, 2, 3], fill: "rgba(255, 250, 240, 0.96)", stroke: "rgba(72, 54, 32, 0.26)" },
+        { indices: [4, 5, 6, 7], fill: "rgba(217, 200, 170, 0.95)", stroke: "rgba(72, 54, 32, 0.22)" },
+        { indices: [0, 1, 5, 4], fill: "rgba(240, 224, 194, 0.9)", stroke: "rgba(72, 54, 32, 0.18)" },
+        { indices: [1, 2, 6, 5], fill: "rgba(192, 95, 45, 0.16)", stroke: "rgba(192, 95, 45, 0.32)" },
+        { indices: [2, 3, 7, 6], fill: "rgba(15, 118, 110, 0.14)", stroke: "rgba(15, 118, 110, 0.24)" },
+        { indices: [3, 0, 4, 7], fill: "rgba(53, 92, 125, 0.12)", stroke: "rgba(53, 92, 125, 0.22)" }
+      ];
+
+      faces
+        .map((face) => ({
+          ...face,
+          avgZ: face.indices.reduce((sum, index) => sum + projected[index].z, 0) / face.indices.length,
+          points: face.indices.map((index) => projected[index])
+        }))
+        .sort((a, b) => a.avgZ - b.avgZ)
+        .forEach((face) => drawFace(ctx, face.points, face.fill, face.stroke));
+
+      const accentBar = [
+        { x: -bodyWidth * 0.16, y: -bodyHeight * 0.48, z: bodyDepth / 2 + 2 },
+        { x: bodyWidth * 0.16, y: -bodyHeight * 0.48, z: bodyDepth / 2 + 2 },
+        { x: bodyWidth * 0.16, y: -bodyHeight * 0.34, z: bodyDepth / 2 + 2 },
+        { x: -bodyWidth * 0.16, y: -bodyHeight * 0.34, z: bodyDepth / 2 + 2 }
+      ].map((point) => projectPoint(rotatePoint(point, rotation), center, perspective));
+      drawFace(ctx, accentBar, "rgba(192, 95, 45, 0.82)", "rgba(192, 95, 45, 0.95)");
+
+      drawAxisLine(ctx, axisOrigin, axisX, "#c05f2d", "X");
+      drawAxisLine(ctx, axisOrigin, axisY, "#0f766e", "Y");
+      drawAxisLine(ctx, axisOrigin, axisZ, "#355c7d", "Z");
+
+      const arrowStart = { x: cx, y: cy + 116 };
+      const arrowEnd = {
+        x: arrowStart.x + vector.y * bodyWidth * 0.74,
+        y: arrowStart.y + vector.x * bodyWidth * 0.42
+      };
+      ctx.strokeStyle = palette.accent;
+      ctx.lineWidth = 6 + strength * 4;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(arrowStart.x, arrowStart.y);
+      ctx.lineTo(arrowEnd.x, arrowEnd.y);
+      ctx.stroke();
+
+      const angle = Math.atan2(arrowEnd.y - arrowStart.y, arrowEnd.x - arrowStart.x);
+      const head = 10 + 10 * strength;
+      ctx.fillStyle = palette.accent;
+      ctx.beginPath();
+      ctx.moveTo(arrowEnd.x, arrowEnd.y);
+      ctx.lineTo(arrowEnd.x - head * Math.cos(angle - Math.PI / 6), arrowEnd.y - head * Math.sin(angle - Math.PI / 6));
+      ctx.lineTo(arrowEnd.x - head * Math.cos(angle + Math.PI / 6), arrowEnd.y - head * Math.sin(angle + Math.PI / 6));
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = palette.text;
+      ctx.font = "600 16px 'Segoe UI', sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("FRONT", cx, 30);
+      ctx.fillText("TILT PROJECTION", cx, height - 56);
+
+      ctx.textAlign = "left";
+      ctx.font = "13px 'Segoe UI', sans-serif";
+      ctx.fillStyle = palette.muted;
+      ctx.fillText("3D body = current attitude", 18, height - 34);
+      ctx.fillText("Arrow = projected lower side", 18, height - 16);
+    }
+
+    function updateRecordingUI(recording) {
+      const active = Boolean(recording?.active);
+      const count = Number(recording?.count) || 0;
+      const chip = document.getElementById("recordingChip");
+      chip.textContent = active ? "保存中" : "未保存";
+      chip.classList.toggle("active", active);
+      document.getElementById("recordingCountChip").textContent = `${count} samples`;
+      startRecordingButton.disabled = active;
+      stopRecordingButton.disabled = !active;
+    }
+
+    function updateSummary(state, pose) {
+      document.getElementById("deviceName").textContent = state.device || "unknown";
+      document.getElementById("sampleCount").textContent = String(state.count || 0);
+      document.getElementById("lastUpdate").textContent = state.latest?.server_received_at
+        ? new Date(state.latest.server_received_at * 1000).toLocaleTimeString()
+        : "--:--:--";
+      document.getElementById("rssiValue").textContent =
+        Number.isFinite(Number(state.latest?.rssi_dbm)) ? `${Number(state.latest.rssi_dbm)} dBm` : "-- dBm";
+
+      const rotatedVector = pose ? rotateVector(pose.top_view_vector, poseRotationDeg) : null;
+      document.getElementById("rollValue").textContent = pose ? `${pose.roll_deg.toFixed(1)} deg` : "--";
+      document.getElementById("pitchValue").textContent = pose ? `${pose.pitch_deg.toFixed(1)} deg` : "--";
+      document.getElementById("tiltValue").textContent = pose ? `${Math.round((pose.tilt_strength || 0) * 100)}%` : "--";
+      document.getElementById("directionValue").textContent = rotatedVector ? directionLabel(rotatedVector) : "CENTER";
+      document.getElementById("rotationLabel").textContent = `表示回転: ${poseRotationDeg}°`;
+      updateRecordingUI(state.recording);
+
+      document.getElementById("statusText").textContent = state.count
+        ? "ライブ更新中です。必要なら 0 / 90 / 180 / 270 度で本体の表示向きを合わせてください。"
+        : "データ待機中です。M5 から /api/imu に送信すると表示が更新されます。";
+    }
+
+    function renderState() {
+      const state = latestState || {
+        history: [],
+        orientation: null,
+        latest: null,
+        count: 0,
+        device: "unknown",
+        recording: { active: false, count: 0, started_at: 0 }
+      };
+      drawChart(accelCanvas, state.history || [], ["ax", "ay", "az"], "Acceleration (g)", [-1.5, 1.5]);
+      drawChart(gyroCanvas, state.history || [], ["gx", "gy", "gz"], "Gyroscope (dps)", null);
+      drawPose(poseCanvas, currentPose || makePose(state.orientation), poseRotationDeg);
+      updateSummary(state, currentPose || makePose(state.orientation));
+    }
+
+    function animatePose() {
+      const state = latestState || {
+        history: [],
+        orientation: null,
+        latest: null,
+        count: 0,
+        device: "unknown",
+        recording: { active: false, count: 0, started_at: 0 }
+      };
+      if (!currentPose) {
+        currentPose = makePose(state.orientation);
+      }
+      if (!targetPose) {
+        targetPose = makePose(state.orientation);
+      }
+
+      currentPose = smoothPose(currentPose, targetPose, 0.18);
+      drawPose(poseCanvas, currentPose, poseRotationDeg);
+      updateSummary(state, currentPose);
+      requestAnimationFrame(animatePose);
+    }
+
+    async function refresh() {
+      try {
+        const response = await fetch("/api/state", { cache: "no-store" });
+        latestState = await response.json();
+        targetPose = makePose(latestState.orientation);
+        if (!currentPose) {
+          currentPose = makePose(latestState.orientation);
+        }
+        drawChart(accelCanvas, latestState.history || [], ["ax", "ay", "az"], "Acceleration (g)", [-1.5, 1.5]);
+        drawChart(gyroCanvas, latestState.history || [], ["gx", "gy", "gz"], "Gyroscope (dps)", null);
+      } catch (error) {
+        document.getElementById("statusText").textContent = `取得エラー: ${error}`;
+      }
+    }
+
+    async function startRecording() {
+      const response = await fetch("/api/recording/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!response.ok) {
+        throw new Error("保存開始に失敗しました");
+      }
+      await refresh();
+      document.getElementById("statusText").textContent = "保存を開始しました。保存終了で CSV をダウンロードします。";
+    }
+
+    async function stopRecording() {
+      const response = await fetch("/api/recording/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: "保存終了に失敗しました" }));
+        throw new Error(error.detail || "保存終了に失敗しました");
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename=\"([^\"]+)\"/);
+      link.href = url;
+      link.download = match ? match[1] : "imu_recording.csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      await refresh();
+      document.getElementById("statusText").textContent = "CSV を保存しました。";
+    }
+
+    startRecordingButton.addEventListener("click", async () => {
+      try {
+        await startRecording();
+      } catch (error) {
+        document.getElementById("statusText").textContent = String(error);
+      }
+    });
+
+    stopRecordingButton.addEventListener("click", async () => {
+      try {
+        await stopRecording();
+      } catch (error) {
+        document.getElementById("statusText").textContent = String(error);
+      }
+    });
+
+    rotationButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        poseRotationDeg = Number(button.dataset.rotation) || 0;
+        rotationButtons.forEach((item) => item.classList.toggle("active", item === button));
+        renderState();
+      });
+    });
+
+    window.addEventListener("resize", renderState);
+    refresh();
+    animatePose();
+    setInterval(refresh, 100);
+  </script>
+</body>
+</html>
