@@ -1,29 +1,29 @@
-# IMU UDP Binary Protocol
+# IMU UDP バイナリ通信仕様
 
-## Overview
+## 概要
 
-ATOM-S3 sends IMU batches to the Python server over UDP using a fixed-length binary packet.
+ATOM-S3 から Python サーバーへ、IMU データのバッチを UDP の固定長バイナリパケットで送信します。
 
-Design goals:
+設計方針は次のとおりです。
 
-- Reduce payload size versus JSON
-- Keep each UDP packet independently decodable
-- Avoid inter-packet delta encoding
-- Allow packet loss detection with a sequence number
-- Keep decoding simple on both ESP32 and Python
+- JSON よりもペイロードサイズを小さくする
+- 各 UDP パケットを単独で復元できるようにする
+- パケット間の差分エンコードは使わない
+- シーケンス番号でパケット欠落を検出できるようにする
+- ESP32 側と Python 側の実装をシンプルに保つ
 
-## Byte Order
+## バイトオーダー
 
-All multi-byte fields are little-endian.
+複数バイトの値はすべてリトルエンディアンです。
 
-## Scaling Rules
+## スケーリングルール
 
-- Acceleration values are encoded as `int16` with `1 LSB = 0.001 g`
-- Gyro values are encoded as `int16` with `1 LSB = 0.01 dps`
-- RSSI is encoded as `int16` in dBm
-- Sample delta time is encoded as `uint16` in milliseconds
+- 加速度は `int16` でエンコードし、`1 LSB = 0.001 g`
+- ジャイロは `int16` でエンコードし、`1 LSB = 0.01 dps`
+- RSSI は `int16` の dBm 値
+- サンプルの時間差は `uint16` のミリ秒
 
-Decode formulas:
+復元式は次のとおりです。
 
 - `ax_g = raw_ax / 1000.0`
 - `ay_g = raw_ay / 1000.0`
@@ -32,70 +32,70 @@ Decode formulas:
 - `gy_dps = raw_gy / 100.0`
 - `gz_dps = raw_gz / 100.0`
 
-## Packet Layout
+## パケット構造
 
-### Header
+### ヘッダ
 
-| Offset | Size | Type | Name | Description |
+| オフセット | サイズ | 型 | 名前 | 説明 |
 | --- | --- | --- | --- | --- |
-| 0 | 2 | `uint16` | `magic` | Constant `0x5349` (`'I''S'`) |
-| 2 | 1 | `uint8` | `version` | Protocol version, currently `1` |
-| 3 | 1 | `uint8` | `flags` | Reserved, currently `0` |
-| 4 | 4 | `uint32` | `seq` | Packet sequence number, increments per packet |
-| 8 | 4 | `uint32` | `base_time_ms` | Timestamp of the first sample in the batch |
-| 12 | 2 | `int16` | `rssi_dbm` | RSSI for the batch |
-| 14 | 1 | `uint8` | `sample_count` | Number of samples in the packet |
-| 15 | 1 | `uint8` | `reserved` | Reserved, currently `0` |
+| 0 | 2 | `uint16` | `magic` | 固定値 `0x5349` (`'I''S'`) |
+| 2 | 1 | `uint8` | `version` | プロトコルバージョン。現在は `1` |
+| 3 | 1 | `uint8` | `flags` | 予約領域。現在は `0` |
+| 4 | 4 | `uint32` | `seq` | パケットごとに増加するシーケンス番号 |
+| 8 | 4 | `uint32` | `base_time_ms` | バッチ先頭サンプルのタイムスタンプ |
+| 12 | 2 | `int16` | `rssi_dbm` | このバッチの RSSI |
+| 14 | 1 | `uint8` | `sample_count` | このパケットに含まれるサンプル数 |
+| 15 | 1 | `uint8` | `reserved` | 予約領域。現在は `0` |
 
-Header size: `16 bytes`
+ヘッダサイズは `16 bytes` です。
 
-### Sample Record
+### サンプルレコード
 
-| Offset in Record | Size | Type | Name | Description |
+| レコード内オフセット | サイズ | 型 | 名前 | 説明 |
 | --- | --- | --- | --- | --- |
-| 0 | 2 | `uint16` | `dt_ms` | Milliseconds from `base_time_ms` |
-| 2 | 2 | `int16` | `ax` | Acceleration X |
-| 4 | 2 | `int16` | `ay` | Acceleration Y |
-| 6 | 2 | `int16` | `az` | Acceleration Z |
-| 8 | 2 | `int16` | `gx` | Gyro X |
-| 10 | 2 | `int16` | `gy` | Gyro Y |
-| 12 | 2 | `int16` | `gz` | Gyro Z |
+| 0 | 2 | `uint16` | `dt_ms` | `base_time_ms` からの経過ミリ秒 |
+| 2 | 2 | `int16` | `ax` | 加速度 X |
+| 4 | 2 | `int16` | `ay` | 加速度 Y |
+| 6 | 2 | `int16` | `az` | 加速度 Z |
+| 8 | 2 | `int16` | `gx` | ジャイロ X |
+| 10 | 2 | `int16` | `gy` | ジャイロ Y |
+| 12 | 2 | `int16` | `gz` | ジャイロ Z |
 
-Sample size: `14 bytes`
+サンプルサイズは `14 bytes` です。
 
-## Packet Size
+## パケットサイズ
 
-Total packet size:
+全体サイズは次の式で求まります。
 
 `16 + sample_count * 14`
 
-Examples:
+例:
 
 - `10 samples -> 156 bytes`
 - `20 samples -> 296 bytes`
 
-This is comfortably below the typical ESP32 UDP payload constraint that caused JSON packets to fail.
+このサイズであれば、JSON 送信時に問題になっていた ESP32 の UDP 送信制約に対してかなり余裕があります。
 
-## Timestamp Reconstruction
+## タイムスタンプ復元
 
-For each sample:
+各サンプルのタイムスタンプは次で復元します。
 
 `timestamp_ms = base_time_ms + dt_ms`
 
-Because time is relative only within the packet, packets remain independent and can be decoded even if earlier packets were lost.
+時間差はそのパケット内だけで完結しているため、前のパケットが失われても現在のパケットだけで復元できます。
 
-## Packet Loss Detection
+## パケット欠落検出
 
-The server tracks the `seq` field.
+サーバーは `seq` を使ってパケット欠落を検出します。
 
-- If the current `seq` is exactly `last_seq + 1`, no gap was detected
-- If the current `seq` is larger, one or more UDP packets were lost
-- If the current `seq` is smaller, the packet may be duplicated, delayed, or the device may have restarted
+- 現在の `seq` が `last_seq + 1` なら欠落なし
+- 現在の `seq` がそれより大きければ、1つ以上の UDP パケットが失われた可能性がある
+- 現在の `seq` がそれより小さければ、重複・遅延・再起動などの可能性がある
 
-No inter-packet delta state is required for decoding.
+パケット間の差分状態は不要です。
 
-## Notes
+## 備考
 
-- This protocol is intentionally simple and stable
-- Reserved fields are kept for future extension
-- If more compression is ever needed, the next step should be a version bump with optional flags, not an incompatible silent change
+- この仕様は、まず安定して扱いやすいことを優先しています
+- 予約領域は将来拡張用です
+- さらに圧縮が必要になった場合は、互換性のない変更を黙って入れるのではなく、バージョン番号を上げて拡張する想定です
