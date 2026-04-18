@@ -4,6 +4,7 @@
 #include <math.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <string.h>
 #include "local_config.h"
 
 const unsigned long SAMPLE_INTERVAL_MS = 10;      // 100Hz
@@ -14,6 +15,7 @@ const unsigned long BUTTON_DEBOUNCE_MS = 250;
 const unsigned long RSSI_UPDATE_INTERVAL_MS = 1000;
 const unsigned long UDP_SEND_GRACE_MS = 500;
 const unsigned long UDP_RETRY_BACKOFF_MS = 1000;
+const unsigned long SERVER_DISCOVERY_TIMEOUT_MS = 1200;
 const size_t CALIBRATION_SAMPLES = 32;
 const size_t MAX_BUFFERED_SAMPLES = 1000;
 const size_t MAX_UDP_SAMPLES = 20;
@@ -25,6 +27,8 @@ const float ACCEL_SCALE = 1000.0f;
 const float GYRO_SCALE = 100.0f;
 const size_t LOG_LINES = 4;
 const int BUTTON_PIN = 41;
+const char SERVER_DISCOVERY_REQUEST[] = "SI_DISCOVER_V1";
+const char SERVER_DISCOVERY_RESPONSE[] = "SI_SERVER_V1";
 
 WiFiUDP udp;
 
@@ -68,8 +72,10 @@ bool imuReady = false;
 bool lastWifiConnected = false;
 bool sendPaused = false;
 bool udpReady = false;
+bool serverAutoDiscovered = false;
 String lastSendStatus = "UDP: idle";
 String logBuffer[LOG_LINES];
+IPAddress activeServerIp = SERVER_IP;
 
 float accelOffsetX = 0.0f;
 float accelOffsetY = 0.0f;
@@ -82,6 +88,7 @@ uint32_t packetSequence = 0;
 
 bool sendBufferedSamples();
 bool ensureUdpReady();
+bool discoverServer();
 size_t buildUdpPayload(size_t maxSamples, uint8_t* buffer, size_t capacity);
 void enqueueSample(const ImuSample& sample);
 ImuSample bufferedSampleAt(size_t index);
@@ -90,6 +97,10 @@ int16_t quantizeScaled(float value, float scale);
 void writeUint16LE(uint8_t* buffer, size_t offset, uint16_t value);
 void writeInt16LE(uint8_t* buffer, size_t offset, int16_t value);
 void writeUint32LE(uint8_t* buffer, size_t offset, uint32_t value);
+IPAddress getBroadcastAddress();
+bool isLowerIpAddress(const IPAddress& lhs, const IPAddress& rhs);
+bool ipAddressIsSet(const IPAddress& ip);
+void discardPendingUdpPackets();
 
 void pushLog(const char* fmt, ...) {
   char message[128];
@@ -150,11 +161,15 @@ void discardBufferedSamples(size_t count) {
 void drawDisplay() {
   M5.Display.setRotation(0);
   M5.Display.setTextSize(1.2);
-  M5.Display.setTextColor(WHITE, BLACK);
-  M5.Display.fillScreen(BLACK);
+  const bool wifiConnected = WiFi.status() == WL_CONNECTED;
+  const bool serverReady = wifiConnected && ipAddressIsSet(activeServerIp);
+  const uint16_t backgroundColor = !wifiConnected
+      ? M5.Display.color565(96, 0, 0)
+      : (serverReady ? BLACK : M5.Display.color565(72, 24, 0));
+  M5.Display.setTextColor(WHITE, backgroundColor);
+  M5.Display.fillScreen(backgroundColor);
   M5.Display.setCursor(0, 0);
 
-  const bool wifiConnected = WiFi.status() == WL_CONNECTED;
   M5.Display.printf("WiFi:%s\n", wifiConnected ? "OK" : "NG");
 
   if (wifiConnected) {
@@ -165,6 +180,12 @@ void drawDisplay() {
     M5.Display.println("RSSI:--");
   }
 
+  if (ipAddressIsSet(activeServerIp)) {
+    M5.Display.printf("SRV:%s\n", activeServerIp.toString().c_str());
+  } else {
+    M5.Display.println("SRV:searching");
+  }
+  M5.Display.printf("MODE:%s\n", serverAutoDiscovered ? "AUTO" : "FIXED");
   M5.Display.printf("IMU:%s Q:%u\n", imuReady ? "OK" : "NG", static_cast<unsigned>(bufferedSamples));
   if (droppedSamples > 0) {
     M5.Display.printf("DROP:%lu\n", droppedSamples);
@@ -186,6 +207,8 @@ bool connectWiFi() {
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   udp.stop();
   udpReady = false;
+  activeServerIp = SERVER_IP;
+  serverAutoDiscovered = false;
 
   pushLog("WiFi connecting...");
 
@@ -211,6 +234,7 @@ bool connectWiFi() {
   lastSendAt = wifiReadyAt;
   nextSendAttemptAt = wifiReadyAt + UDP_SEND_GRACE_MS;
   lastSendStatus = sendPaused ? "UDP: paused" : "UDP: standby";
+  discoverServer();
   return true;
 }
 
@@ -227,6 +251,112 @@ bool ensureUdpReady() {
 
   pushLog("UDP begin failed");
   lastSendStatus = "UDP init NG";
+  return false;
+}
+
+bool ipAddressIsSet(const IPAddress& ip) {
+  return !(ip[0] == 0 && ip[1] == 0 && ip[2] == 0 && ip[3] == 0);
+}
+
+IPAddress getBroadcastAddress() {
+  IPAddress broadcast;
+  const IPAddress localIp = WiFi.localIP();
+  const IPAddress subnetMask = WiFi.subnetMask();
+  for (size_t i = 0; i < 4; ++i) {
+    broadcast[i] = static_cast<uint8_t>((localIp[i] & subnetMask[i]) | (~subnetMask[i]));
+  }
+  return broadcast;
+}
+
+bool isLowerIpAddress(const IPAddress& lhs, const IPAddress& rhs) {
+  for (size_t i = 0; i < 4; ++i) {
+    if (lhs[i] < rhs[i]) {
+      return true;
+    }
+    if (lhs[i] > rhs[i]) {
+      return false;
+    }
+  }
+  return false;
+}
+
+void discardPendingUdpPackets() {
+  while (udp.parsePacket() > 0) {
+    while (udp.available() > 0) {
+      udp.read();
+    }
+  }
+}
+
+bool discoverServer() {
+  if (WiFi.status() != WL_CONNECTED || !ensureUdpReady()) {
+    return false;
+  }
+
+  discardPendingUdpPackets();
+
+  const IPAddress broadcastIp = getBroadcastAddress();
+  if (udp.beginPacket(broadcastIp, SERVER_PORT) != 1) {
+    pushLog("SRV discovery send NG");
+    return false;
+  }
+
+  udp.write(reinterpret_cast<const uint8_t*>(SERVER_DISCOVERY_REQUEST),
+            strlen(SERVER_DISCOVERY_REQUEST));
+  if (udp.endPacket() != 1) {
+    pushLog("SRV discovery end NG");
+    return false;
+  }
+
+  pushLog("SRV discovery -> %s", broadcastIp.toString().c_str());
+
+  IPAddress bestServerIp;
+  bool found = false;
+  const unsigned long startedAt = millis();
+  while (millis() - startedAt < SERVER_DISCOVERY_TIMEOUT_MS) {
+    const int packetSize = udp.parsePacket();
+    if (packetSize <= 0) {
+      delay(20);
+      continue;
+    }
+
+    char response[32];
+    const int bytesToRead = packetSize < static_cast<int>(sizeof(response) - 1)
+        ? packetSize
+        : static_cast<int>(sizeof(response) - 1);
+    const int readBytes = udp.read(reinterpret_cast<uint8_t*>(response), bytesToRead);
+    response[readBytes > 0 ? readBytes : 0] = '\0';
+
+    if (strcmp(response, SERVER_DISCOVERY_RESPONSE) != 0) {
+      continue;
+    }
+
+    const IPAddress candidateIp = udp.remoteIP();
+    if (!found || isLowerIpAddress(candidateIp, bestServerIp)) {
+      bestServerIp = candidateIp;
+      found = true;
+    }
+  }
+
+  if (found) {
+    activeServerIp = bestServerIp;
+    serverAutoDiscovered = true;
+    lastSendStatus = "SRV:auto " + activeServerIp.toString();
+    pushLog("SRV auto %s", activeServerIp.toString().c_str());
+    return true;
+  }
+
+  if (ipAddressIsSet(SERVER_IP)) {
+    activeServerIp = SERVER_IP;
+    serverAutoDiscovered = false;
+    lastSendStatus = "SRV:fixed " + activeServerIp.toString();
+    pushLog("SRV fallback %s", activeServerIp.toString().c_str());
+  } else {
+    activeServerIp = IPAddress(0, 0, 0, 0);
+    serverAutoDiscovered = false;
+    lastSendStatus = "SRV: not found";
+    pushLog("SRV not found");
+  }
   return false;
 }
 
@@ -377,7 +507,7 @@ bool sendBufferedSamples() {
     return true;
   }
 
-  if (WiFi.status() != WL_CONNECTED || sendPaused || !ensureUdpReady()) {
+  if (WiFi.status() != WL_CONNECTED || sendPaused || !ipAddressIsSet(activeServerIp) || !ensureUdpReady()) {
     return false;
   }
 
@@ -392,7 +522,7 @@ bool sendBufferedSamples() {
   }
   const size_t sendCount = (packetBytes - UDP_HEADER_BYTES) / UDP_SAMPLE_BYTES;
 
-  if (udp.beginPacket(SERVER_IP, SERVER_PORT) != 1) {
+  if (udp.beginPacket(activeServerIp, SERVER_PORT) != 1) {
     lastSendStatus = "UDP retry";
     pushLog("UDP packet start failed");
     lastSendAt = millis();
@@ -446,6 +576,8 @@ void setup() {
   pushLog("IMU init OK");
   if (!lastWifiConnected) {
     lastSendStatus = "BTN: reconnect";
+  } else if (!ipAddressIsSet(activeServerIp)) {
+    lastSendStatus = "SRV: search NG";
   } else if (sendPaused) {
     lastSendStatus = "UDP: paused";
   } else {

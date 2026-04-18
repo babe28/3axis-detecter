@@ -28,6 +28,8 @@ UDP_HEADER_BYTES = 16
 UDP_SAMPLE_STRUCT = struct.Struct("<Hhhhhhh")
 ACCEL_SCALE = 1000.0
 GYRO_SCALE = 100.0
+SERVER_DISCOVERY_REQUEST = b"SI_DISCOVER_V1"
+SERVER_DISCOVERY_RESPONSE = b"SI_SERVER_V1"
 
 
 latest_data = {
@@ -152,6 +154,14 @@ def decode_udp_packet(packet: bytes) -> tuple[int, str, int, list[dict[str, Any]
     return packet_seq, "atom-s3", rssi_dbm, samples
 
 
+def handle_discovery_packet(sock: socket.socket, packet: bytes, addr: tuple[str, int]) -> bool:
+    if packet != SERVER_DISCOVERY_REQUEST:
+        return False
+
+    sock.sendto(SERVER_DISCOVERY_RESPONSE, addr)
+    return True
+
+
 def store_samples(device: str, rssi_dbm: int, samples: list[dict[str, Any]], now: float) -> dict[str, Any]:
     global sample_seq
 
@@ -229,6 +239,8 @@ def udp_listener() -> None:
                 break
 
             try:
+                if handle_discovery_packet(sock, packet, addr):
+                    continue
                 packet_seq, device, rssi_dbm, samples = decode_udp_packet(packet)
                 with lock:
                     if last_packet_seq is not None and packet_seq > last_packet_seq + 1:
